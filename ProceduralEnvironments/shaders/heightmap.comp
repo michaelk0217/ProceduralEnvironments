@@ -1,0 +1,216 @@
+#version 450
+#extension GL_EXT_samplerless_texture_functions : require
+layout(row_major) uniform;
+layout(row_major) buffer;
+
+#line 13 0
+layout(r32f)
+layout(binding = 0)
+uniform image2D outNoise_0;
+
+
+#line 9
+struct HeightMapParams_std140_0
+{
+    int seed_0;
+    vec2 offset_0;
+    float frequency_0;
+    int octaves_0;
+    float lacunarity_0;
+    float persistence_0;
+};
+
+
+#line 16
+layout(binding = 1)
+layout(std140) uniform block_HeightMapParams_std140_0
+{
+    int seed_0;
+    vec2 offset_0;
+    float frequency_0;
+    int octaves_0;
+    float lacunarity_0;
+    float persistence_0;
+}params_0;
+
+#line 35
+float fade_0(float t_0)
+{
+    return t_0 * t_0 * t_0 * (t_0 * (t_0 * 6.0 - 15.0) + 10.0);
+}
+
+
+#line 18
+uint hash_0(uint state_0)
+{
+
+    uint _S1 = (state_0 ^ (state_0 >> 16)) * 2146121005U;
+
+    uint _S2 = (_S1 ^ (_S1 >> 15)) * 2221713035U;
+
+    return _S2 ^ (_S2 >> 16);
+}
+
+uint hash2_0(int ix_0, int iy_0)
+{
+
+    return hash_0(uint(params_0.seed_0 + ix_0 * 73856093 + iy_0 * 19349663));
+}
+
+
+#line 45
+vec2 getGradient_0(int h_0)
+{
+
+
+    float angle_0 = float(h_0 & 65535) / 65535.0 * 2.0 * 3.14159274101257324;
+
+    return vec2(cos(angle_0), sin(angle_0));
+}
+
+float dotGridGradient_0(int ix_1, int iy_1, float x_0, float y_0)
+{
+
+    vec2 gradient_0 = getGradient_0(int(hash2_0(ix_1, iy_1)));
+
+#line 62
+    return (x_0 - float(ix_1)) * gradient_0.x + (y_0 - float(iy_1)) * gradient_0.y;
+}
+
+
+#line 40
+float lerp_0(float a_0, float b_0, float t_1)
+{
+    return a_0 + t_1 * (b_0 - a_0);
+}
+
+
+#line 65
+float PerlinNoise_0(float x_1, float y_1)
+{
+    int x0_0 = int(floor(x_1));
+    int x1_0 = x0_0 + 1;
+    int y0_0 = int(floor(y_1));
+    int y1_0 = y0_0 + 1;
+
+    float sx_0 = fade_0(x_1 - float(x0_0));
+
+#line 83
+    return lerp_0(lerp_0(dotGridGradient_0(x0_0, y0_0, x_1, y_1), dotGridGradient_0(x1_0, y0_0, x_1, y_1), sx_0), lerp_0(dotGridGradient_0(x0_0, y1_0, x_1, y_1), dotGridGradient_0(x1_0, y1_0, x_1, y_1), sx_0), fade_0(y_1 - float(y0_0)));
+}
+
+float fractalNoise_0(float x_2, float y_2)
+{
+
+    float _S3 = params_0.frequency_0;
+
+#line 89
+    int i_0 = 0;
+
+#line 89
+    float frequency_1 = _S3;
+
+#line 89
+    float amplitude_0 = 1.0;
+
+#line 89
+    float total_0 = 0.0;
+
+#line 89
+    float maxValue_0 = 0.0;
+
+
+
+    for(;;)
+    {
+
+#line 93
+        if(i_0 < (params_0.octaves_0))
+        {
+        }
+        else
+        {
+
+#line 93
+            break;
+        }
+        float total_1 = total_0 + PerlinNoise_0(x_2 * frequency_1, y_2 * frequency_1) * amplitude_0;
+        float maxValue_1 = maxValue_0 + amplitude_0;
+        float amplitude_1 = amplitude_0 * params_0.persistence_0;
+        float frequency_2 = frequency_1 * params_0.lacunarity_0;
+
+#line 93
+        i_0 = i_0 + 1;
+
+#line 93
+        frequency_1 = frequency_2;
+
+#line 93
+        amplitude_0 = amplitude_1;
+
+#line 93
+        total_0 = total_1;
+
+#line 93
+        maxValue_0 = maxValue_1;
+
+#line 93
+    }
+
+#line 101
+    if(maxValue_0 == 0.0)
+    {
+        return 0.0;
+    }
+
+    return total_0 / maxValue_0;
+}
+
+
+
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main()
+{
+
+#line 114
+    uint width_0;
+
+#line 114
+    uint height_0;
+    ((width_0) = imageSize((outNoise_0)).x), ((height_0) = imageSize((outNoise_0)).y);
+
+    uint _S4 = gl_GlobalInvocationID.x;
+
+#line 117
+    bool _S5;
+
+#line 117
+    if(_S4 >= width_0)
+    {
+
+#line 117
+        _S5 = true;
+
+#line 117
+    }
+    else
+    {
+
+#line 117
+        _S5 = (gl_GlobalInvocationID.y) >= height_0;
+
+#line 117
+    }
+
+#line 117
+    if(_S5)
+    {
+        return;
+    }
+
+#line 129
+    imageStore((outNoise_0), (ivec2(gl_GlobalInvocationID.xy)), vec4((fractalNoise_0(float(_S4) + params_0.offset_0.x, float(gl_GlobalInvocationID.y) + params_0.offset_0.y) + 1.0) / 2.0, float(0), float(0), float(0)));
+    return;
+}
+

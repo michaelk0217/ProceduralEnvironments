@@ -1,5 +1,21 @@
 // heightmap.slang
-struct HeightMapParams
+// struct HeightMapParams
+// {
+//     uint seed;
+//     float2 offset;
+//     float frequency;
+//     uint octaves;
+//     float lacunarity;
+//     float persistence;
+// };
+
+[[vk::binding(0, 0)]]
+RWTexture2D<float> outNoise;
+
+// [[vk::binding(1, 0)]]
+// ConstantBuffer<HeightMapParams> params;
+[push_constant]
+cbuffer HeightMapParams
 {
     int seed;
     float2 offset;
@@ -7,99 +23,97 @@ struct HeightMapParams
     int octaves;
     float lacunarity;
     float persistence;
+    float _padding2;
 };
 
-[[vk::binding(0, 0)]]
-RWTexture2D<float> outNoise;
-
-[[vk::binding(1, 0)]]
-ConstantBuffer<HeightMapParams> params;
-
-uint hash(uint state)
+uint hash(uint2 p, int seed)
 {
-    state ^= state >> 16;
-    state *= 0x7feb352d;
-    state ^= state >> 15;
-    state *= 0x846ca68b;
-    state ^= state >> 16;
-    return state;
+    p += seed;
+    p = p * uint2(1664525, 1013904223);
+    p.x += p.y;
+    p.y += p.x;
+    p = p ^ (p >> 16);
+    p.x += p.y;
+    p.y += p.x;
+    p = p ^ (p >> 16);
+    return p.x;
 }
 
-uint hash2(int ix, int iy)
+float2 getGradient(uint n)
 {
-    uint state = params.seed + ix * 73856093 + iy * 19349663;
-    return hash(state);
+    switch (n & 3) // Use the last 2 bits
+    {
+    case 0: return float2(1.0, 1.0);
+    case 1: return float2(-1.0, 1.0);
+    case 2: return float2(1.0, -1.0);
+    case 3: return float2(-1.0, -1.0);
+    default: return float2(0.0, 0.0); // Should not happen
+    }
 }
 
-// smooth interpolation (6t^5 - 15t^4 + 10t^3)
-float fade(float t)
+float PerlinNoise(float2 p)
 {
-    return t * t * t * (t * (t * 6 - 15) + 10);
+    float2 i = floor(p); // Integer grid cell coordinates
+    float2 f = frac(p);  // Fractional coordinates within the cell
+
+    // Smooth the fractional coordinates using a quintic curve for better quality
+    // 6t^5 - 15t^4 + 10t^3
+    float2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    uint2 pi = uint2(i);
+
+    // Get a random hash for each of the four corners of the grid cell.
+    uint h00 = hash(pi + uint2(0, 0), seed);
+    uint h10 = hash(pi + uint2(1, 0), seed);
+    uint h01 = hash(pi + uint2(0, 1), seed);
+    uint h11 = hash(pi + uint2(1, 1), seed);
+
+    // Calculate the influence of each corner's gradient on the point 'p'.
+    // This is done by taking the dot product of the gradient and the distance vector.
+    float d00 = dot(getGradient(h00), f - float2(0.0, 0.0));
+    float d10 = dot(getGradient(h10), f - float2(1.0, 0.0));
+    float d01 = dot(getGradient(h01), f - float2(0.0, 1.0));
+    float d11 = dot(getGradient(h11), f - float2(1.0, 1.0));
+
+    // Bilinearly interpolate the results using the smoothed fractional coordinates.
+    return lerp(lerp(d00, d10, u.x),
+                lerp(d01, d11, u.x),
+                u.y);
 }
 
-float lerp(float a, float b, float t)
-{
-    return a + t * (b - a);
-}
-
-float2 getGradient(int h)
-{
-    float random = (float)(h & 0xFFFF) / 65535.0f;
-
-    float angle = random * 2.0 * 3.14159265f;
-
-    return float2(cos(angle), sin(angle));
-}
-
-float dotGridGradient(int ix, int iy, float x, float y)
-{
-    int h = hash2(ix, iy);
-    float2 gradient = getGradient(h);
-
-    float dx = x - ix;
-    float dy = y - iy;
-
-    return dx * gradient.x + dy * gradient.y;
-}
-
-float PerlinNoise(float x, float y)
-{
-    int x0 = (int)floor(x);
-    int x1 = x0 + 1;
-    int y0 = (int)floor(y);
-    int y1 = y0 + 1;
-
-    float sx = fade(x - x0);
-    float sy = fade(y - y0);
-
-    float n0 = dotGridGradient(x0, y0, x, y);
-    float n1 = dotGridGradient(x1, y0, x, y);
-    float n2 = dotGridGradient(x0, y1, x, y);
-    float n3 = dotGridGradient(x1, y1, x, y);
-
-    float ix0 = lerp(n0, n1, sx);
-    float ix1 = lerp(n2, n3, sx);
-
-    return lerp(ix0, ix1, sy);
-}
-
+// Fractal Noise (or Fractal Brownian Motion - fBm).
+// This function sums multiple layers (octaves) of Perlin noise at different
+// frequencies and amplitudes to create a more detailed and natural look.
 float fractalNoise(float x, float y)
 {
+    float2 p = float2(x, y);
     float total = 0.0;
-    float frequency = params.frequency;
+    float freq = frequency;
     float amplitude = 1.0;
-    float maxValue = 0.0;
+    float maxAmplitude = 0.0; // Used for normalization
 
-    for (int i = 0; i < params.octaves; i++)
+    // Loop through each octave
+    for (int i = 0; i < octaves; i++)
     {
-        total += PerlinNoise(x * frequency, y * frequency) * amplitude;
-        maxValue += amplitude;
-        amplitude *= params.persistence; // amplitude decrease with each octave
-        frequency *= params.lacunarity; // frequency increase with each octave
+        // Add a layer of Perlin noise
+        total += PerlinNoise(p * freq) * amplitude;
+
+        // Keep track of the maximum possible amplitude to normalize the final result
+        maxAmplitude += amplitude;
+
+        // Increase frequency and decrease amplitude for the next octave
+        freq *= lacunarity;
+        amplitude *= persistence;
     }
 
-    return total / maxValue;
+    // Normalize to bring the result roughly into the [-1, 1] range
+    if (maxAmplitude == 0.0)
+    {
+        return 0.0;
+    }
+    return total / maxAmplitude;
 }
+
 
 
 [numthreads(8, 8, 1)]
@@ -114,11 +128,11 @@ void main(uint3 dispatchThreadID: SV_DispatchThreadID)
         return;
     }
 
-    float x = (float)dispatchThreadID.x + params.offset.x;
-    float y = (float)dispatchThreadID.y + params.offset.y;
+    float x = (float)dispatchThreadID.x + offset.x;
+    float y = (float)dispatchThreadID.y + offset.y;
 
     float noiseValue = fractalNoise(x, y);
-
+    
     float finalValue = (noiseValue + 1.0) / 2.0; // map noise from [-1, 1] to [0, 1]
 
     outNoise[dispatchThreadID.xy] = finalValue;

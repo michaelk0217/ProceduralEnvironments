@@ -116,6 +116,25 @@ void UIOverlay::buildUI(UIPacket& uiPacket)
 
     }
     ImGui::End();
+
+    ImGui::SetNextWindowPos(ImVec2(20, 20));
+    ImGui::SetNextWindowSize(ImVec2(300, 500));
+    if (ImGui::Begin("Height Map Controls", nullptr, ImGuiWindowFlags_None))
+    {
+        ImGui::Text("Height Map Settings");
+        ImGui::Separator();
+
+        bool changed = false;
+
+        changed |= ImGui::DragFloat2("(X, Z) Offset", uiPacket.heightMapConfig.offset, 0.1f, 0.0f, 1000.0f);
+        changed |= ImGui::SliderInt("Octaves", &uiPacket.heightMapConfig.octaves, 1, 20);
+        changed |= ImGui::SliderFloat("Frequency", &uiPacket.heightMapConfig.frequency, 0.0001f, 0.01f, "%.5f");
+        changed |= ImGui::SliderFloat("Lacunarity", &uiPacket.heightMapConfig.lacunarity, 1.0f, 10.0f);
+        changed |= ImGui::SliderFloat("Persistence", &uiPacket.heightMapConfig.persistence, 0.0001f, 1.0f, "%.5f");
+
+        uiPacket.heightMapConfigChanged = changed;
+    }
+    ImGui::End();
     ImGui::PopStyleColor();
 }
 

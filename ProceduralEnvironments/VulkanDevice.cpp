@@ -38,10 +38,10 @@ void VulkanDevice::createInstance()
 
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	appInfo.pApplicationName = "FluidSim";
-	appInfo.applicationVersion = VK_MAKE_VERSION(1, 4, 0);
+	appInfo.applicationVersion = VK_MAKE_VERSION(1, 3, 0);
 	appInfo.pEngineName = "FluidSim";
-	appInfo.engineVersion = VK_MAKE_VERSION(1, 4, 0);
-	appInfo.apiVersion = VK_API_VERSION_1_4;
+	appInfo.engineVersion = VK_MAKE_VERSION(1, 3, 0);
+	appInfo.apiVersion = VK_API_VERSION_1_3;
 
 	VkInstanceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -227,23 +227,17 @@ void VulkanDevice::createLogicalDevice()
 	deviceFeatures.fillModeNonSolid = VK_TRUE;
 	deviceFeatures.wideLines = VK_TRUE;
 
-	/*VkPhysicalDeviceFeatures2 deviceFeatures2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-	deviceFeatures2.features.samplerAnisotropy = VK_TRUE;
-	deviceFeatures2.features.tessellationShader = VK_TRUE;
-	deviceFeatures2.features.fillModeNonSolid = VK_TRUE;
-	deviceFeatures2.features.wideLines = VK_TRUE;
-
-	VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR computeDerivativesFeatures = {};
-	computeDerivativesFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR;
-	computeDerivativesFeatures.computeDerivativeGroupQuads = VK_TRUE;
-	computeDerivativesFeatures.computeDerivativeGroupLinear = VK_TRUE;*/
+	/*VkDeviceDiagnosticsConfigCreateInfoNV aftermathInfo = {};
+	aftermathInfo.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV;
+	aftermathInfo.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV |
+		VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV |
+		VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | 
+		VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV;*/
 
 	VkPhysicalDeviceVulkan13Features vk13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 	vk13Features.dynamicRendering = VK_TRUE;
 	vk13Features.synchronization2 = VK_TRUE;
-
-	/*deviceFeatures2.pNext = &vk13Features;
-	vk13Features.pNext = &computeDerivativesFeatures;*/
+	//vk13Features.pNext = &aftermathInfo;
 
 
 	VkDeviceCreateInfo createInfo{};
@@ -254,7 +248,6 @@ void VulkanDevice::createLogicalDevice()
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
 	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 	createInfo.pNext = &vk13Features;
-	//createInfo.pNext = &deviceFeatures2;
 
 	if (enableValidationLayers)
 	{
@@ -268,6 +261,8 @@ void VulkanDevice::createLogicalDevice()
 	vkGetDeviceQueue(logicalDevice, familyIndices.computeFamily.value(), 0, &computeQueue);
 	vkGetDeviceQueue(logicalDevice, familyIndices.transferFamily.value(), 0, &transferQueue);
 	vkGetDeviceQueue(logicalDevice, familyIndices.presentFamily.value(), 0, &presentQueue);
+
+	//vkCmdSetCheckpointNV = (PFN_vkCmdSetCheckpointNV)vkGetDeviceProcAddr(logicalDevice, "vkCmdSetCheckpointNV");
 }
 
 bool VulkanDevice::isDeviceSuitable(VkPhysicalDevice physicalDevice, VkSurfaceKHR vkSurface)

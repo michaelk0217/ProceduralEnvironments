@@ -118,6 +118,9 @@ public:
 	static std::vector<VkCommandBuffer> createCommandBuffers(VkDevice device, VkCommandBufferLevel level, VkCommandPool pool, uint32_t count);
 
 	static VkCommandBuffer createCommandBuffer(VkDevice device, VkCommandBufferLevel level, VkCommandPool pool, bool begin);
+
+	//PFN_vkCmdSetCheckpointNV vkCmdSetCheckpointNV = nullptr;
+	
 private:
 
 	// ----- Vulkan Instance & Validation Layer -----

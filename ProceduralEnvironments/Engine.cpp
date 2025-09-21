@@ -29,8 +29,9 @@ void Engine::initGlfwWindow()
 
 void Engine::initVulkan()
 {
-    slang::createGlobalSession(&slangGlobalSession);
 
+    slang::createGlobalSession(&slangGlobalSession);
+    
     device = std::make_unique<VulkanDevice>(window->getGlfwWindow());
     swapchain = std::make_unique<VulkanSwapchain>(device->instance, device->surface, device->logicalDevice, device->physicalDevice, window->getGlfwWindow());
     swapchain->create(windowConfig.width, windowConfig.height);
@@ -40,7 +41,16 @@ void Engine::initVulkan()
     createDescriptorPool();
     
     createHeightMapResources(heightMapSize, VK_FORMAT_R32_SFLOAT);
-    generateHeightMap(heightMapConfig, heightMapSize);
+
+    heightMapConfig.seed = 12345;
+    heightMapConfig.offset[0] = 0.0f;
+    heightMapConfig.offset[1] = 0.0f;
+    heightMapConfig.frequency = 0.01f;
+    heightMapConfig.octaves = 8;
+    heightMapConfig.lacunarity = 2.0f;
+    heightMapConfig.persistence = 0.5f;
+
+    //generateHeightMap(heightMapConfig, heightMapSize);
 
     createGraphicsResources();
 
@@ -48,7 +58,7 @@ void Engine::initVulkan()
 
     createSyncPrimitives();
 
-    generateNxNQuad(quadsVertices, quadsIndices, 200, 10.0f);
+    generateNxNQuad(quadsVertices, quadsIndices, numQuads, mapLength);
     initializeVertexIndexBuffers();
 
     camera = std::make_unique<Camera>(
@@ -97,6 +107,7 @@ void Engine::mainLoop()
         };
         uiOverlay->newFrame();
         uiOverlay->buildUI(uiPacket);
+        
 
         
         drawFrame();
@@ -125,16 +136,17 @@ void Engine::cleanUp()
     device.reset();
     camera.reset();
     window.reset();
+
 }
 
 void Engine::drawFrame()
 {
     vkWaitForFences(device->logicalDevice, 1, &waitFences[currentFrame], VK_TRUE, UINT64_MAX);
 
-    if (heightMapConfigChanged)
+    /*if (heightMapConfigChanged)
     {
         generateHeightMap(heightMapConfig, heightMapSize);
-    }
+    }*/
 
     VK_CHECK_RESULT(vkResetFences(device->logicalDevice, 1, &waitFences[currentFrame]));
 
@@ -155,6 +167,9 @@ void Engine::drawFrame()
     mvpData.view = camera->calculateViewMatrix();
     mvpData.proj = camera->getProjectionMatrix();
     mvpData.mvp = mvpData.proj * mvpData.view * mvpData.model;
+    mvpData.modelInverse = glm::inverse(mvpData.model);
+    mvpData.viewInverse = glm::inverse(mvpData.view);
+    mvpData.projInverse = glm::inverse(mvpData.proj);
 
     graphicsUBO[currentFrame].copyTo(&mvpData, sizeof(MVPMatrices));
 
@@ -162,6 +177,11 @@ void Engine::drawFrame()
     VkCommandBufferBeginInfo cmdBufInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     const VkCommandBuffer commandBuffer = frameCommandBuffers[currentFrame];
     VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
+
+    if (!heightMapInitialized || heightMapConfigChanged)
+    {
+        recordHeightMapGeneration(commandBuffer, heightMapConfig, heightMapSize);
+    }
 
     vks::tools::insertImageMemoryBarrier(
         commandBuffer,
@@ -438,8 +458,10 @@ void Engine::createGraphicsResources()
 
     VK_CHECK_RESULT(vkCreatePipelineLayout(device->logicalDevice, &pipelineLayoutCI, nullptr, &graphicsPipelineLayout));
 
-    VkShaderModule vertShaderModule = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/shader.slang", "vertexMain");
-    VkShaderModule fragShaderModule = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/shader.slang", "fragmentMain");
+    //VkShaderModule vertShaderModule = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/shader.slang", "vertexMain");
+    //VkShaderModule fragShaderModule = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/shader.slang", "fragmentMain");
+    VkShaderModule vertShaderModule = vks::tools::loadShader("shaders/vert.spirv", device->logicalDevice);
+    VkShaderModule fragShaderModule = vks::tools::loadShader("shaders/frag.spirv", device->logicalDevice);
 
     VkPipelineShaderStageCreateInfo vertShaderStageCI{};
     vertShaderStageCI.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -481,9 +503,10 @@ void Engine::createGraphicsResources()
     VkPipelineRasterizationStateCreateInfo rasterizerStateCI{};
     rasterizerStateCI.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizerStateCI.depthClampEnable = VK_FALSE;
-    rasterizerStateCI.polygonMode = VK_POLYGON_MODE_LINE;
+    rasterizerStateCI.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizerStateCI.lineWidth = 1.0f;
     rasterizerStateCI.cullMode = VK_CULL_MODE_FRONT_BIT; // technically back bit since the y-axis is flipped when viewport is set for draw call
+    //rasterizerStateCI.cullMode = VK_CULL_MODE_NONE;
     rasterizerStateCI.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizerStateCI.depthBiasEnable = VK_FALSE;
     rasterizerStateCI.depthBiasConstantFactor = 0.0f;
@@ -766,13 +789,13 @@ void Engine::cleanUpVertexIndexBuffers()
     indexBuffer.destroy();
 }
 
-void Engine::generateNxNQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, uint32_t n, float l)
+void Engine::generateNxNQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, uint32_t numQuads, float l)
 {
-    if (n <= 0) return;
+    if (numQuads <= 0) return;
 
     // n=1 gives a 3x3 vertex grid (2x2 quads).
-    uint32_t numVerticesPerSide = n * 2 + 1;
-    uint32_t numQuadsPerSide = numVerticesPerSide - 1;
+    uint32_t numVerticesPerSide = numQuads + 1;
+    uint32_t numQuadsPerSide = numQuads;
 
     uint32_t verticesSize = numVerticesPerSide * numVerticesPerSide;
     vertices.resize(verticesSize);
@@ -881,37 +904,46 @@ void Engine::createHeightMapResources(int size, VkFormat format)
 
     VK_CHECK_RESULT(vkCreateSampler(device->logicalDevice, &samplerCI, nullptr, &heightMapSampler));
 
-    heightMapParams.create(
+    /*heightMapParams.create(
         device->logicalDevice,
         device->physicalDevice,
         sizeof(HeightMapParams),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
-    heightMapParams.map();
+    heightMapParams.map();*/
 
-    std::array<VkDescriptorSetLayoutBinding, 2> layoutBindings{};
+    std::array<VkDescriptorSetLayoutBinding, 1> layoutBindings{};
     layoutBindings[0].binding = 0;
     layoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     layoutBindings[0].descriptorCount = 1;
     layoutBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    layoutBindings[1].binding = 1;
+    /*layoutBindings[1].binding = 1;
     layoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     layoutBindings[1].descriptorCount = 1;
-    layoutBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    layoutBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;*/
 
     VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
     descriptorSetLayoutCI.bindingCount = static_cast<uint32_t>(layoutBindings.size());
     descriptorSetLayoutCI.pBindings = layoutBindings.data();
     VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logicalDevice, &descriptorSetLayoutCI, nullptr, &heightMapDescriptorSetLayout));
 
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(HeightMapParams);
+
     VkPipelineLayoutCreateInfo pipelineLayoutCI{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipelineLayoutCI.setLayoutCount = 1;
     pipelineLayoutCI.pSetLayouts = &heightMapDescriptorSetLayout;
+    pipelineLayoutCI.pushConstantRangeCount = 1;
+    pipelineLayoutCI.pPushConstantRanges = &pushRange;
+
     VK_CHECK_RESULT(vkCreatePipelineLayout(device->logicalDevice, &pipelineLayoutCI, nullptr, &heightMapPipelineLayout));
 
-    VkShaderModule computeShader = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/heightmap.slang", "main");
+    //VkShaderModule computeShader = vks::tools::loadSlangShader(device->logicalDevice, slangGlobalSession, "shaders/heightmap.slang", "main");
+    VkShaderModule computeShader = vks::tools::loadShader("shaders/heightmap.spirv", device->logicalDevice);
 
     VkPipelineShaderStageCreateInfo shaderStage{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -936,12 +968,12 @@ void Engine::createHeightMapResources(int size, VkFormat format)
     storageImageDescriptor.imageView = heightMap.imageView;
     storageImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    VkDescriptorBufferInfo uboDescriptor{};
+    /*VkDescriptorBufferInfo uboDescriptor{};
     uboDescriptor.buffer = heightMapParams.buffer;
     uboDescriptor.offset = 0;
-    uboDescriptor.range = sizeof(HeightMapParams);
+    uboDescriptor.range = sizeof(HeightMapParams);*/
 
-    std::array<VkWriteDescriptorSet, 2> writeDescriptorSets{};
+    std::array<VkWriteDescriptorSet, 1> writeDescriptorSets{};
     writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSets[0].dstBinding = 0;
     writeDescriptorSets[0].dstSet = heightMapDescriptors;
@@ -949,22 +981,24 @@ void Engine::createHeightMapResources(int size, VkFormat format)
     writeDescriptorSets[0].descriptorCount = 1;
     writeDescriptorSets[0].pImageInfo = &storageImageDescriptor;
 
-    writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    /*writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSets[1].dstBinding = 1;
     writeDescriptorSets[1].dstSet = heightMapDescriptors;
     writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writeDescriptorSets[1].descriptorCount = 1;
-    writeDescriptorSets[1].pBufferInfo = &uboDescriptor;
+    writeDescriptorSets[1].pBufferInfo = &uboDescriptor;*/
 
     vkUpdateDescriptorSets(device->logicalDevice, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 
 }
 
-void Engine::generateHeightMap(HeightMapParams& params, int size)
+void Engine::recordHeightMapGeneration(VkCommandBuffer cmd, HeightMapParams& params, int size)
 {
-    heightMapParams.copyTo(&params, sizeof(HeightMapParams));
+    // 1. Update the uniform buffer with the latest parameters
+    //heightMapParams.copyTo(&params, sizeof(HeightMapParams));
 
-    VkCommandBuffer cmd = vks::tools::beginSingleTimeCommands(device->logicalDevice, device->graphicsCommandPool);
+    // 2. Insert a barrier to transition the image for compute shader writing.
+    //    The layout must be VK_IMAGE_LAYOUT_GENERAL for storage image access.
 
     VkImageLayout oldLayout = heightMapInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
     VkAccessFlags srcAccessMask = heightMapInitialized ? VK_ACCESS_SHADER_READ_BIT : 0;
@@ -973,47 +1007,52 @@ void Engine::generateHeightMap(HeightMapParams& params, int size)
     vks::tools::insertImageMemoryBarrier(
         cmd,
         heightMap.image,
-        srcAccessMask,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        oldLayout,
-        VK_IMAGE_LAYOUT_GENERAL,
-        srcStage,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        srcAccessMask,                  // Source: Last used as texture in fragment shader
+        VK_ACCESS_SHADER_WRITE_BIT,                 // Destination: Will be written by compute shader
+        oldLayout,   // Old layout
+        VK_IMAGE_LAYOUT_GENERAL,                    // New layout
+        srcStage,      // Source stage
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,       // Destination stage
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     );
 
+    // 3. Bind the compute pipeline and descriptor sets
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, heightMapComputePipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, heightMapPipelineLayout, 0, 1, &heightMapDescriptors, 0, nullptr);
+    vkCmdPushConstants(cmd, heightMapPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HeightMapParams), &params);
 
+    // 4. Dispatch the compute shader
     uint32_t groupSize = 8;
     uint32_t gx = (size + groupSize - 1) / groupSize;
     uint32_t gy = gx;
-    uint32_t gz = 1;
-    vkCmdDispatch(cmd, gx, gy, gz);
+    vkCmdDispatch(cmd, gx, gy, 1);
 
+    // 5. Insert a second barrier. This is the crucial synchronization point.
+    //    It ensures that the compute shader finishes writing before the vertex shader
+    //    tries to read the heightmap.
     vks::tools::insertImageMemoryBarrier(
         cmd,
         heightMap.image,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT,                 // Source: Finished writing in compute
+        VK_ACCESS_SHADER_READ_BIT,                  // Destination: Will be read by vertex shader
+        VK_IMAGE_LAYOUT_GENERAL,                    // Old layout
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,   // New layout for texture sampling
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,       // Source stage
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,        // Destination stage
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     );
 
-    vks::tools::endSingleTimeCommands(cmd, device->logicalDevice, device->graphicsQueue, device->graphicsCommandPool);
-
-    heightMapInitialized = true;
+    // That's it! No waiting.
     heightMapConfigChanged = false;
+    heightMapInitialized = true;
 }
+
 
 void Engine::cleanUpHeightMapResources()
 {
     heightMap.destroy();
     vkDestroySampler(device->logicalDevice, heightMapSampler, nullptr);
-    heightMapParams.destroy();
+    //heightMapParams.destroy();
     vkDestroyPipeline(device->logicalDevice, heightMapComputePipeline, nullptr);
     vkDestroyPipelineLayout(device->logicalDevice, heightMapPipelineLayout, nullptr);
     vkDestroyDescriptorSetLayout(device->logicalDevice, heightMapDescriptorSetLayout, nullptr);

@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.h>
 #include <slang/slang.h>
 
+
 #include "VulkanDevice.h"
 #include "VulkanSwapchain.h"
 #include "VulkanBuffer.h"
@@ -17,6 +18,8 @@
 #include "Window.h"
 #include "Camera.hpp"
 #include "UIOverlay.h"
+
+//#include "GpuCrashTracker.h"
 
 class Engine
 {
@@ -30,6 +33,7 @@ private:
 		const std::string windowTitle = "Engine";
 		bool resized = false;
 	} windowConfig;
+
 
 	std::unique_ptr<UIOverlay> uiOverlay;
 
@@ -113,7 +117,9 @@ private:
 
 
 	// ----- utility funcitons -----
-	static void generateNxNQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, uint32_t n, float l);
+	uint32_t numQuads = 400;
+	float mapLength = 10.0f;
+	static void generateNxNQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, uint32_t numQuads, float l);
 
 	void createHeightMapResources(int size, VkFormat format);
 	VkDescriptorSetLayout heightMapDescriptorSetLayout;
@@ -122,21 +128,15 @@ private:
 	VkDescriptorSet heightMapDescriptors;
 	vks::Image heightMap;
 	VkSampler heightMapSampler;
-	vks::Buffer heightMapParams;
+	//vks::Buffer heightMapParams;
 
 	int heightMapSize = 512;
-	HeightMapParams heightMapConfig{
-		12345, // seed
-		glm::vec2(0.0), // offset
-		1.0f, // frequency
-		6, // octaves
-		2.0, // lacunarity
-		0.5 // persistnece
-	};
+	HeightMapParams heightMapConfig;
 	bool heightMapConfigChanged = true;
 	bool heightMapInitialized = false;
 
-	void generateHeightMap(HeightMapParams& params, int size);
+	//void generateHeightMap(HeightMapParams& params, int size);
+	void recordHeightMapGeneration(VkCommandBuffer cmd, HeightMapParams& params, int size);
 	void cleanUpHeightMapResources();
 
 };

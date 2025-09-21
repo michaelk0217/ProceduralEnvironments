@@ -79,16 +79,20 @@ struct MVPMatrices
 	glm::mat4 view;
 	glm::mat4 proj;
 	glm::mat4 mvp;
+	glm::mat4 modelInverse;
+	glm::mat4 viewInverse;
+	glm::mat4 projInverse;
 };
 
 struct HeightMapParams
 {
-	int seed;
-	glm::vec2 offset;
-	float frequency;
-	int octaves;
-	float lacunarity;
-	float persistence;
+	alignas(4) int seed;
+	alignas(8) float offset[2];
+	alignas(4) float frequency;
+	alignas(4) int octaves;
+	alignas(4) float lacunarity;
+	alignas(4) float persistence;
+	alignas(4) float _padding2;
 };
 
 struct UIPacket
