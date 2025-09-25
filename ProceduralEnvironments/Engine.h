@@ -12,7 +12,7 @@
 #include "VulkanSwapchain.h"
 #include "VulkanBuffer.h"
 #include "VulkanImage.h"
-
+#include "VulkanComputePass.h"
 #include "VulkanStructures.h"
 
 #include "Window.h"
@@ -27,6 +27,10 @@ public:
 	void run();
 
 private:
+	// ---- debug helperts -----
+	uint32_t generationCalls = 0;
+	void debugPrintIndexBuffer();
+
 	struct {
 		uint32_t width = 1960;
 		uint32_t height = 1080;
@@ -79,6 +83,7 @@ private:
 	void updateGraphicsDescriptors();
 	std::vector<VkDescriptorSet> graphicsDescriptors;
 	std::vector<vks::Buffer> graphicsUBO;
+	VertexShaderPushConstant vertPushConstant;
 	void cleanUpGraphicsResources();
 
 	// ----- Depth/Stencil Resources -----
@@ -89,55 +94,33 @@ private:
 	void initializeVertexIndexBuffers();
 	vks::Buffer vertexBuffer;
 	vks::Buffer indexBuffer;
-	std::vector<Vertex> triangleVertices = {
-		{
-			glm::vec3(1.0f, -1.0f, 0.0f),    // pos
-			glm::vec3(0.0f, 0.0f, 1.0f),     // inNormal (pointing towards camera)
-			glm::vec2(0.5f, 0.0f),           // texCoord
-			glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)      // color (red)
-		},
-		{
-			glm::vec3(-1.0f, -1.0f, 0.0f),    // pos
-			glm::vec3(0.0f, 0.0f, 1.0f),     // inNormal
-			glm::vec2(0.0f, 1.0f),           // texCoord
-			glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)      // color (blue)
-		},
-		{
-			glm::vec3(0.0f, 1.0f, 0.0f),     // pos
-			glm::vec3(0.0f, 0.0f, 1.0f),     // inNormal
-			glm::vec2(1.0f, 1.0f),           // texCoord
-			glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)      // color (green)
-		}
-	};
-	std::vector<uint32_t> triangleIndices{ 0, 1, 2 };
 
 	std::vector<Vertex> quadsVertices{};
 	std::vector<uint32_t> quadsIndices{};
 	void cleanUpVertexIndexBuffers();
 
 
-	// ----- utility funcitons -----
-	uint32_t numQuads = 400;
-	float mapLength = 10.0f;
-	static void generateNxNQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, uint32_t numQuads, float l);
-
+	// ----- Height Map -----
 	void createHeightMapResources(int size, VkFormat format);
-	VkDescriptorSetLayout heightMapDescriptorSetLayout;
-	VkPipelineLayout heightMapPipelineLayout;
-	VkPipeline heightMapComputePipeline;
-	VkDescriptorSet heightMapDescriptors;
 	vks::Image heightMap;
-	VkSampler heightMapSampler;
-	//vks::Buffer heightMapParams;
-
-	int heightMapSize = 512;
+	int heightMapSize = 1024;
 	HeightMapParams heightMapConfig;
+	
+	std::unique_ptr<VulkanComputePass> m_heightMapCompute;
+
+	void cleanUpHeightMapResources();
+
+
+	
+	// generate heightmap AND normals
 	bool heightMapConfigChanged = true;
 	bool heightMapInitialized = false;
 
-	//void generateHeightMap(HeightMapParams& params, int size);
-	void recordHeightMapGeneration(VkCommandBuffer cmd, HeightMapParams& params, int size);
-	void cleanUpHeightMapResources();
-
+	// generate terrain mesh
+	void createTerrainGenerationComputeResources();
+	TerrainParams terrainGenParams;
+	std::unique_ptr<VulkanComputePass> m_TerrainGenerationCompute;
+	void cleanUpTerrainGenerationComputeResources();
+	void recordTerrainMeshGeneration(VkCommandBuffer cmd, HeightMapParams& heightMapParams, TerrainParams& terrainParams);
 };
 

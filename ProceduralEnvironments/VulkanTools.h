@@ -107,6 +107,20 @@ namespace vks
 			VkPipelineStageFlags srcStageMask,
 			VkPipelineStageFlags dstStageMask);
 
+		/** @brief Insert Sync2 Buffer memory barrier into command buffer */
+		void insertBufferMemoryBarrier2(
+			VkCommandBuffer cmdbuffer,
+			VkAccessFlags2 srcAccessMask,
+			VkAccessFlags2 dstAccessMask,
+			VkBuffer buffer,
+			VkDeviceSize offset,
+			VkDeviceSize size,
+			VkPipelineStageFlags2 srcStageMask,
+			VkPipelineStageFlags2 dstStageMask,
+			uint32_t srcQueueFamilyIndex,
+			uint32_t dstQueueFamilyIndex
+		);
+
 		/** @brief insert Sync2 Memory barrier into command buffer */
 		void insertMemoryBarrier2(
 			VkCommandBuffer cmdbuffer,

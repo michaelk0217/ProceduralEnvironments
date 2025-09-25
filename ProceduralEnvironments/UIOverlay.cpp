@@ -126,12 +126,15 @@ void UIOverlay::buildUI(UIPacket& uiPacket)
 
         bool changed = false;
 
-        changed |= ImGui::DragFloat2("(X, Z) Offset", uiPacket.heightMapConfig.offset, 0.1f, 0.0f, 1000.0f);
+        changed |= ImGui::DragFloat2("(X, Z) Offset", uiPacket.heightMapConfig.offset, 1.0f, -1000.0f, 1000.0f);
+        changed |= ImGui::InputInt("Seed", &uiPacket.heightMapConfig.seed);
         changed |= ImGui::SliderInt("Octaves", &uiPacket.heightMapConfig.octaves, 1, 20);
-        changed |= ImGui::SliderFloat("Frequency", &uiPacket.heightMapConfig.frequency, 0.0001f, 0.01f, "%.5f");
+        changed |= ImGui::DragFloat("Frequency", &uiPacket.heightMapConfig.frequency, 0.00001, 0.0001, 0.01, "%.5f");
         changed |= ImGui::SliderFloat("Lacunarity", &uiPacket.heightMapConfig.lacunarity, 1.0f, 10.0f);
         changed |= ImGui::SliderFloat("Persistence", &uiPacket.heightMapConfig.persistence, 0.0001f, 1.0f, "%.5f");
-
+        changed |= ImGui::DragFloat("Noise Scale", &uiPacket.heightMapConfig.noiseScale, 0.001f, 0.0001f, 100.0f);
+        changed |= ImGui::DragFloat("Height Scale", &uiPacket.terrainParams.heightScale, 0.01f, 0.001f, 100.0f);
+        changed |= ImGui::DragFloat("Normals Strength", &uiPacket.terrainParams.normalsStrength, 0.01f, 0.0f, 100.0f);
         uiPacket.heightMapConfigChanged = changed;
     }
     ImGui::End();

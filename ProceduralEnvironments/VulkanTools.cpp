@@ -355,12 +355,42 @@ namespace vks
 			vkCmdPipelineBarrier(
 				cmdbuffer,
 				srcStageMask,
-				dstAccessMask,
+				dstStageMask,
 				0,
 				0, nullptr,
 				1, &bufferMemoryBarrier,
 				0, nullptr
 			);
+		}
+
+		void insertBufferMemoryBarrier2(
+			VkCommandBuffer cmdbuffer,
+			VkAccessFlags2 srcAccessMask,
+			VkAccessFlags2 dstAccessMask,
+			VkBuffer buffer,
+			VkDeviceSize offset,
+			VkDeviceSize size,
+			VkPipelineStageFlags2 srcStageMask,
+			VkPipelineStageFlags2 dstStageMask,
+			uint32_t srcQueueFamilyIndex,
+			uint32_t dstQueueFamilyIndex)
+		{
+			VkBufferMemoryBarrier2 bufferMemoryBarrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+			bufferMemoryBarrier.srcAccessMask = srcAccessMask;
+			bufferMemoryBarrier.dstAccessMask = dstAccessMask;
+			bufferMemoryBarrier.offset = offset;
+			bufferMemoryBarrier.buffer = buffer;
+			bufferMemoryBarrier.size = size;
+			bufferMemoryBarrier.srcStageMask = srcStageMask;
+			bufferMemoryBarrier.dstStageMask = dstStageMask;
+			bufferMemoryBarrier.srcQueueFamilyIndex = srcQueueFamilyIndex;
+			bufferMemoryBarrier.dstQueueFamilyIndex = dstQueueFamilyIndex;
+
+			VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			dependencyInfo.bufferMemoryBarrierCount = 1;
+			dependencyInfo.pBufferMemoryBarriers = &bufferMemoryBarrier;
+
+			vkCmdPipelineBarrier2(cmdbuffer, &dependencyInfo);
 		}
 
 		void insertMemoryBarrier2(
@@ -370,17 +400,17 @@ namespace vks
 			VkPipelineStageFlags2 srcStageMask,
 			VkPipelineStageFlags2 dstStageMask
 		) {
-			VkMemoryBarrier2 bufferMemoryBarrier{};
-			bufferMemoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-			bufferMemoryBarrier.srcAccessMask = srcAccessMask;
-			bufferMemoryBarrier.dstAccessMask = dstAccessMask;
-			bufferMemoryBarrier.srcStageMask = srcStageMask;
-			bufferMemoryBarrier.dstStageMask = dstStageMask;
-
+			VkMemoryBarrier2 memoryBarrier{};
+			memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+			memoryBarrier.srcAccessMask = srcAccessMask;
+			memoryBarrier.dstAccessMask = dstAccessMask;
+			memoryBarrier.srcStageMask = srcStageMask;
+			memoryBarrier.dstStageMask = dstStageMask;
+		
 			VkDependencyInfo dependencyInfo{};
 			dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
 			dependencyInfo.memoryBarrierCount = 1;
-			dependencyInfo.pMemoryBarriers = &bufferMemoryBarrier;
+			dependencyInfo.pMemoryBarriers = &memoryBarrier;
 
 			vkCmdPipelineBarrier2(
 				cmdbuffer,

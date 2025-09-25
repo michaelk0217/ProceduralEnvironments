@@ -25,6 +25,22 @@ void vks::Image::createImage(VkDevice device, VkPhysicalDevice physicalDevice, V
 
 	viewInfo.image = image;
 	VK_CHECK_RESULT(vkCreateImageView(device, &viewInfo, nullptr, &imageView));
+
+	VkSamplerCreateInfo samplerCI{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+	samplerCI.magFilter = VK_FILTER_LINEAR;
+	samplerCI.minFilter = VK_FILTER_LINEAR;
+	samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCI.anisotropyEnable = VK_FALSE;
+	samplerCI.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+	samplerCI.unnormalizedCoordinates = VK_FALSE;
+	samplerCI.compareEnable = VK_FALSE;
+	samplerCI.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerCI.minLod = 0.0f;
+	samplerCI.maxLod = 0.0f;
+
+	VK_CHECK_RESULT(vkCreateSampler(device, &samplerCI, nullptr, &sampler));
 }
 
 void vks::Image::destroy()
@@ -43,5 +59,10 @@ void vks::Image::destroy()
 	{
 		vkFreeMemory(device, memory, nullptr);
 		memory = VK_NULL_HANDLE;
+	}
+	if (sampler != VK_NULL_HANDLE)
+	{
+		vkDestroySampler(device, sampler, nullptr);
+		sampler = VK_NULL_HANDLE;
 	}
 }

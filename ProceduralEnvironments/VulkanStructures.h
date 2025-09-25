@@ -12,10 +12,10 @@
 #include <memory>
 
 struct Vertex {
-	glm::vec3 pos;
-	glm::vec3 inNormal;
-	glm::vec2 texCoord;
-	glm::vec4 color;
+	alignas(16) glm::vec3 pos;
+	alignas(16) glm::vec3 inNormal;
+	alignas(8) glm::vec2 texCoord;
+	alignas(16) glm::vec4 color;
 
 	static VkVertexInputBindingDescription getBindingDescription()
 	{
@@ -92,7 +92,29 @@ struct HeightMapParams
 	alignas(4) int octaves;
 	alignas(4) float lacunarity;
 	alignas(4) float persistence;
-	alignas(4) float _padding2;
+	alignas(4) float noiseScale;
+};
+
+struct NormalMapParams
+{
+	alignas(4) float strength;
+	alignas(4) float _padding1;
+	alignas(8) float _padding2[2];
+};
+
+struct VertexShaderPushConstant
+{
+	alignas(4) float heightScale;
+	alignas(4) float _padding1;
+	alignas(8) float _padding2[2];
+};
+
+struct TerrainParams
+{
+	alignas(4) float terrainSideLength;
+	alignas(4) float heightScale;
+	alignas(4) uint32_t gridResolution;
+	alignas(4) float normalsStrength;
 };
 
 struct UIPacket
@@ -103,5 +125,8 @@ struct UIPacket
 	glm::vec3& cameraDirection;
 	HeightMapParams& heightMapConfig;
 	bool& heightMapConfigChanged;
+	TerrainParams& terrainParams;
+	//NormalMapParams& normalMapConfig;
+	//VertexShaderPushConstant& vertShaderPushConstant;
 };
 
