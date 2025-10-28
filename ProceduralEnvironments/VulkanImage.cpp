@@ -1,6 +1,7 @@
 #include "VulkanImage.h"
 #include "VulkanTools.h"
 
+#include "VulkanBuffer.h"
 
 /**
 * Creates Image, Imageview, and memory.
@@ -65,4 +66,72 @@ void vks::Image::destroy()
 		vkDestroySampler(device, sampler, nullptr);
 		sampler = VK_NULL_HANDLE;
 	}
+}
+
+void vks::Image::transferHdrDataToImage(VulkanDevice& device, float* pixelData, VkImage image, uint32_t width, uint32_t height, VkPipelineStageFlagBits imageDstStage)
+{
+	// VK_FORMAT_R32G32B32A32_SFLOAT 
+	VkDeviceSize imageSize = width * height * 4 * sizeof(float);
+
+	vks::Buffer stagingBuffer;
+	stagingBuffer.create(
+		device.logicalDevice,
+		device.physicalDevice,
+		imageSize,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	);
+	stagingBuffer.map();
+	stagingBuffer.copyTo(pixelData, imageSize);
+	stagingBuffer.unmap();
+	
+	VkCommandBuffer cmd = vks::tools::beginSingleTimeCommands(device.logicalDevice, device.graphicsCommandPool);
+	
+	vks::tools::insertImageMemoryBarrier(
+		cmd,
+		image,
+		0,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+	);
+
+	VkBufferImageCopy region{};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageOffset = { 0, 0, 0 };
+	region.imageExtent = { width, height, 1 };
+
+	vkCmdCopyBufferToImage(
+		cmd,
+		stagingBuffer.buffer,
+		image,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1,
+		&region
+	);
+
+	vks::tools::insertImageMemoryBarrier(
+		cmd,
+		image,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_ACCESS_SHADER_READ_BIT,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		imageDstStage,
+		VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+	);
+
+	vks::tools::endSingleTimeCommands(cmd, device.logicalDevice, device.graphicsQueue, device.graphicsCommandPool);
+
+	stagingBuffer.destroy();
 }

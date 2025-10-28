@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "VulkanDevice.h"
+
 namespace vks
 {
 	struct Image
@@ -16,9 +18,9 @@ namespace vks
 
 		VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 
-
-
 		void createImage(VkDevice device, VkPhysicalDevice physicalDevice, VkMemoryPropertyFlags properties);
 		void destroy();
+
+		static void transferHdrDataToImage(VulkanDevice& device, float* pixelData, VkImage image, uint32_t width, uint32_t height, VkPipelineStageFlagBits imageDstStage);
 	};
 }

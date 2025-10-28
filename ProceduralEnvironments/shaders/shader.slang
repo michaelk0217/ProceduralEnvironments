@@ -25,10 +25,9 @@ struct VertexInput
 struct VertexOutput
 {
     float4 position : SV_Position;
-    [[vk::location(0)]] float3 worldPos : WORLD_POS;
-    [[vk::location(1)]] float3 worldNormal : NORMAL;
-    [[vk::location(2)]] float2 texCoord : TEXCOORD0;
-    [[vk::location(3)]] float4 color : COLOR;
+    [[vk::location(0)]] float3 worldNormal : NORMAL;
+    [[vk::location(1)]] float2 texCoord : TEXCOORD0;
+    [[vk::location(2)]] float4 color : COLOR;
 };
 
 
@@ -36,7 +35,6 @@ struct VertexOutput
 VertexOutput vertexMain(VertexInput input)
 {
     VertexOutput output;
-    output.worldPos = (mul(mvpBuffer.model, float4(input.position, 1.0))).xyz;
     output.position = mul(mvpBuffer.mvp, float4(input.position, 1.0));
     output.worldNormal = normalize(mul((float3x3)mvpBuffer.model, input.normal));
     output.texCoord = input.texCoord;
@@ -58,5 +56,4 @@ float4 fragmentMain(VertexOutput input) : SV_Target
     float3 finalColor = float3(0.07, 0.03, 0.00) * (diffuse + ambient);
 
     return float4(finalColor, 1.0);
-    // return input.color;
 }

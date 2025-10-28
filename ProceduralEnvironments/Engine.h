@@ -8,6 +8,7 @@
 #include <slang/slang.h>
 
 
+
 #include "VulkanDevice.h"
 #include "VulkanSwapchain.h"
 #include "VulkanBuffer.h"
@@ -72,8 +73,9 @@ private:
 	void cleanUpSyncPrimitives();
 
 	// ----- Descriptor Pool -----
-	void createDescriptorPool();
+	void createDescriptorPools();
 	VkDescriptorPool descriptorPool;
+	//VkDescriptorPool computeDescriptorPool;
 
 	// ----- Graphics Pipeline -----
 	void createGraphicsResources();
@@ -100,27 +102,38 @@ private:
 	void cleanUpVertexIndexBuffers();
 
 
-	// ----- Height Map -----
+	// ----- Terrain Generation -----
 	void createHeightMapResources(int size, VkFormat format);
 	vks::Image heightMap;
 	int heightMapSize = 1024;
 	HeightMapParams heightMapConfig;
-	
 	std::unique_ptr<VulkanComputePass> m_heightMapCompute;
-
 	void cleanUpHeightMapResources();
 
-
-	
-	// generate heightmap AND normals
 	bool heightMapConfigChanged = true;
 	bool heightMapInitialized = false;
 
-	// generate terrain mesh
 	void createTerrainGenerationComputeResources();
 	TerrainParams terrainGenParams;
 	std::unique_ptr<VulkanComputePass> m_TerrainGenerationCompute;
 	void cleanUpTerrainGenerationComputeResources();
+	
 	void recordTerrainMeshGeneration(VkCommandBuffer cmd, HeightMapParams& heightMapParams, TerrainParams& terrainParams);
+
+
+	// ----- Skybox Resources-----
+	void createSkyboxResources(std::string hdrPath);
+	void createSkyboxGraphicsPipeline();
+	void updateSkyboxDescriptors();
+	void cleanUpSkyboxResources();
+
+	vks::Image skyboxCubemapImage;
+	vks::Buffer skyboxVertexBuffer;
+
+	VkDescriptorSetLayout skyboxDescriptorSetLayout = VK_NULL_HANDLE;
+	VkPipelineLayout skyboxPipelineLayout = VK_NULL_HANDLE;
+	VkPipeline skyboxPipeline = VK_NULL_HANDLE;
+	std::vector<VkDescriptorSet> skyboxDescriptors;
+	std::vector<vks::Buffer> skyboxUBO;
 };
 
