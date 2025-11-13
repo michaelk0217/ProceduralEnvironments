@@ -43,9 +43,15 @@ void Engine::initVulkan()
 
     createDescriptorPools();
     
-    createHeightMapResources(heightMapSize, VK_FORMAT_R32_SFLOAT);
-    initializeVertexIndexBuffers();
-    createTerrainGenerationComputeResources();
+    Terrain::Config terrainConfig;
+    terrainConfig.heightmapSize = 1024;
+    terrainConfig.gridResolution = 1024;
+    terrainConfig.terrainSideLength = 40.0f;
+    terrainConfig.heightScale = 3.0f;
+    terrainConfig.normalsStrength = 50.0f;
+
+    terrain = std::make_unique<Terrain>(*device, terrainConfig);
+    terrain->initialize(descriptorPool);
 
     heightMapConfig.seed = 12345;
     heightMapConfig.offset[0] = 0.0f;
@@ -56,10 +62,10 @@ void Engine::initVulkan()
     heightMapConfig.persistence = 0.5f;
     heightMapConfig.noiseScale = 1.0f;
 
-    terrainGenParams.gridResolution = static_cast<uint32_t>(heightMapSize);
-    terrainGenParams.heightScale = 3.0f;
-    terrainGenParams.normalsStrength = 50.0f;
-    terrainGenParams.terrainSideLength = 40.0f;
+    terrainGenParams.gridResolution = terrainConfig.gridResolution;
+    terrainGenParams.heightScale = terrainConfig.heightScale;
+    terrainGenParams.normalsStrength = terrainConfig.normalsStrength;
+    terrainGenParams.terrainSideLength = terrainConfig.terrainSideLength;
     
 
     createGraphicsResources();
@@ -131,13 +137,9 @@ void Engine::cleanUp()
 
     uiOverlay.reset();
 
-    cleanUpTerrainGenerationComputeResources();
-    cleanUpHeightMapResources();
+    terrain.reset();
+
     skyboxCubemapImage.destroy();
-
-    //debugPrintIndexBuffer();
-
-    cleanUpVertexIndexBuffers();
 
     cleanUpSyncPrimitives();
 
@@ -154,7 +156,6 @@ void Engine::cleanUp()
     camera.reset();
     window.reset();
 
-    std::cout << generationCalls << " times generated" << std::endl;
 }
 
 void Engine::drawFrame()
@@ -192,10 +193,17 @@ void Engine::drawFrame()
     const VkCommandBuffer commandBuffer = frameCommandBuffers[currentFrame];
     VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &cmdBufInfo));
 
-    if (!heightMapInitialized || heightMapConfigChanged)
+    /*if (!heightMapInitialized || heightMapConfigChanged)
     {
         recordTerrainMeshGeneration(commandBuffer, heightMapConfig, terrainGenParams);
+    }*/
+
+    if (!terrain->isInitialized() || heightMapConfigChanged)
+    {
+        terrain->recordGeneration(commandBuffer, heightMapConfig, terrainGenParams);
+        heightMapConfigChanged = false;
     }
+
 
     vks::tools::insertImageMemoryBarrier(
         commandBuffer,
@@ -292,19 +300,14 @@ void Engine::drawFrame()
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-    //vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexShaderPushConstant), &vertPushConstant);
-
-    VkDeviceSize offsets[1]{ 0 };
-
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer.buffer, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-    //vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(quadsIndices.size()), 1, 0, 0, 0);
-    uint32_t indexCount = (heightMapSize - 1) * (heightMapSize - 1) * 6;
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
+    // render terrain
+    terrain->recordDraw(commandBuffer);
 
     vkCmdEndRendering(commandBuffer);
 
+    // ============================================
+    // RENDER UI
+    // ============================================
 
     uiOverlay->render(commandBuffer, imageIndex, windowConfig.width, windowConfig.height);
 
@@ -717,280 +720,6 @@ void Engine::createDepthResources()
     depthStencil.viewInfo = viewInfo;
 
     depthStencil.createImage(device->logicalDevice, device->physicalDevice, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-}
-
-void Engine::initializeVertexIndexBuffers()
-{
-
-    VkDeviceSize vertexBufferSize = sizeof(Vertex) * heightMapSize * heightMapSize;
-
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * (heightMapSize - 1) * (heightMapSize - 1) * 6;
-
-    vertexBuffer.create(
-        device->logicalDevice,
-        device->physicalDevice,
-        vertexBufferSize,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
-
-    indexBuffer.create(
-        device->logicalDevice,
-        device->physicalDevice,
-        indexBufferSize,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
-}
-
-void Engine::cleanUpVertexIndexBuffers()
-{
-    vertexBuffer.destroy();
-    indexBuffer.destroy();
-}
-
-void Engine::createHeightMapResources(int size, VkFormat format)
-{
-    VkImageCreateInfo imageInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = size;
-    imageInfo.extent.height = size;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = format;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-    heightMap.imageInfo = imageInfo;
-    heightMap.viewInfo = viewInfo;
-
-    heightMap.createImage(device->logicalDevice, device->physicalDevice, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    std::vector<VkDescriptorSetLayoutBinding> layoutBindings(1);
-    layoutBindings[0].binding = 0;
-    layoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    layoutBindings[0].descriptorCount = 1;
-    layoutBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    m_heightMapCompute = std::make_unique<VulkanComputePass>(*device);
-    VulkanComputePass::Config computeConfig{};
-    computeConfig.descriptorSetLayoutBindings = layoutBindings;
-    computeConfig.shaderPath = "shaders/heightmap.spirv";
-    computeConfig.shaderType = VulkanComputePass::ShaderType::Shader_Type_SPIRV;
-    computeConfig.slangGlobalSession = nullptr;
-    computeConfig.pushConstantSize = sizeof(HeightMapParams);
-    m_heightMapCompute->create(computeConfig, descriptorPool);
-
-    VkDescriptorImageInfo storageImageDescriptor{};
-    storageImageDescriptor.imageView = heightMap.imageView;
-    storageImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    std::vector<VkWriteDescriptorSet> writeDescriptorSets(1);
-    writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSets[0].dstBinding = 0;
-    //writeDescriptorSets[0].dstSet = heightMapDescriptors;
-    writeDescriptorSets[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writeDescriptorSets[0].descriptorCount = 1;
-    writeDescriptorSets[0].pImageInfo = &storageImageDescriptor;
-
-    m_heightMapCompute->updateDescriptors(writeDescriptorSets);
-}
-
-void Engine::cleanUpHeightMapResources()
-{
-    heightMap.destroy();
-
-    m_heightMapCompute.reset();
-}
-
-void Engine::createTerrainGenerationComputeResources()
-{
-    std::vector<VkDescriptorSetLayoutBinding> bindings(3);
-    // height map
-    bindings[0].binding = 0;
-    bindings[0].descriptorCount = 1;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    // vertex buffer
-    bindings[1].binding = 1;
-    bindings[1].descriptorCount = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    // index buffer
-    bindings[2].binding = 2;
-    bindings[2].descriptorCount = 1;
-    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    m_TerrainGenerationCompute = std::make_unique<VulkanComputePass>(*device);
-    VulkanComputePass::Config computeConfig{};
-    computeConfig.descriptorSetLayoutBindings = bindings;
-    computeConfig.shaderPath = "shaders/GenerateTerrainMesh.spirv";
-    computeConfig.shaderType = VulkanComputePass::ShaderType::Shader_Type_SPIRV;
-    computeConfig.slangGlobalSession = nullptr;
-    computeConfig.pushConstantSize = sizeof(TerrainParams);
-    m_TerrainGenerationCompute->create(computeConfig, descriptorPool);
-
-    VkDescriptorImageInfo heightMapInfo{};
-    heightMapInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    heightMapInfo.imageView = heightMap.imageView;
-    heightMapInfo.sampler = heightMap.sampler;
-
-    VkDeviceSize vertexBufferSize = sizeof(Vertex) * heightMapSize * heightMapSize;
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * (heightMapSize - 1) * (heightMapSize - 1) * 6;
-
-    VkDescriptorBufferInfo vertexBufferInfo{};
-    vertexBufferInfo.buffer = vertexBuffer.buffer;
-    vertexBufferInfo.range = vertexBufferSize;
-    vertexBufferInfo.offset = 0;
-
-    VkDescriptorBufferInfo indexBufferInfo{};
-    indexBufferInfo.buffer = indexBuffer.buffer;
-    indexBufferInfo.range = indexBufferSize;
-    indexBufferInfo.offset = 0;
-
-    std::vector<VkWriteDescriptorSet> writeDescriptorSets(3);
-    writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSets[0].dstBinding = 0;
-    //writeDescriptorSets[0].dstSet = terrainGenDescriptors;
-    writeDescriptorSets[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSets[0].descriptorCount = 1;
-    writeDescriptorSets[0].pImageInfo = &heightMapInfo;
-
-    writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSets[1].dstBinding = 1;
-    //writeDescriptorSets[1].dstSet = terrainGenDescriptors;
-    writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writeDescriptorSets[1].descriptorCount = 1;
-    writeDescriptorSets[1].pBufferInfo = &vertexBufferInfo;
-
-    writeDescriptorSets[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSets[2].dstBinding = 2;
-    //writeDescriptorSets[2].dstSet = terrainGenDescriptors;
-    writeDescriptorSets[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writeDescriptorSets[2].descriptorCount = 1;
-    writeDescriptorSets[2].pBufferInfo = &indexBufferInfo;
-
-
-    m_TerrainGenerationCompute->updateDescriptors(writeDescriptorSets);
-
-}
-
-void Engine::cleanUpTerrainGenerationComputeResources()
-{
-
-    m_TerrainGenerationCompute.reset();
-}
-
-// combines heightmap generation and mesh generation
-void Engine::recordTerrainMeshGeneration(VkCommandBuffer cmd, HeightMapParams& heightMapParams, TerrainParams& terrainParams)
-{
-    VkImageLayout oldLayout = heightMapInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
-    VkAccessFlags srcAccessMask = heightMapInitialized ? VK_ACCESS_SHADER_READ_BIT : 0;
-    VkPipelineStageFlags srcStage = heightMapInitialized ? VK_PIPELINE_STAGE_VERTEX_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-
-    // height map generation
-    vks::tools::insertImageMemoryBarrier(
-        cmd,
-        heightMap.image,
-        srcAccessMask,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        oldLayout,
-        VK_IMAGE_LAYOUT_GENERAL,
-        srcStage,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-    );
-
-    /*vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, heightMapComputePipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, heightMapPipelineLayout, 0, 1, &heightMapDescriptors, 0, nullptr);
-    vkCmdPushConstants(cmd, heightMapPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HeightMapParams), &heightMapParams);*/
-
-    uint32_t groupSize = 8;
-    uint32_t gx = (heightMapSize + groupSize - 1) / groupSize;
-    uint32_t gy = gx;
-    //vkCmdDispatch(cmd, gx, gy, 1);
-
-    m_heightMapCompute->recordCommands(cmd, &heightMapParams, gx, gy, 1);
-
-    vks::tools::insertImageMemoryBarrier(
-        cmd,
-        heightMap.image,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-    );
-
-    VkDeviceSize vertexBufferSize = sizeof(Vertex) * heightMapSize * heightMapSize;
-    VkDeviceSize indexBufferSize = sizeof(uint32_t) * (heightMapSize - 1) * (heightMapSize - 1) * 6;
-
-    VkAccessFlags vertexSrcAccess = heightMapInitialized ? VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT : 0;
-    VkPipelineStageFlags vertexSrcStage = heightMapInitialized ? VK_PIPELINE_STAGE_VERTEX_INPUT_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    VkAccessFlags indexSrcAccess = heightMapInitialized ? VK_ACCESS_INDEX_READ_BIT : 0;
-    VkPipelineStageFlags indexSrcStage = heightMapInitialized ? VK_PIPELINE_STAGE_VERTEX_INPUT_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-    vks::tools::insertBufferMemoryBarrier(
-        cmd,
-        vertexSrcAccess,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        vertexBuffer.buffer,
-        0,
-        vertexBufferSize,
-        vertexSrcStage,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
-    );
-    vks::tools::insertBufferMemoryBarrier(
-        cmd,
-        indexSrcAccess,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        indexBuffer.buffer,
-        0,
-        indexBufferSize,
-        indexSrcStage,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
-    );
-
-    m_TerrainGenerationCompute->recordCommands(cmd, &terrainParams, gx, gy, 1);
-
-    vks::tools::insertBufferMemoryBarrier(
-        cmd,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-        vertexBuffer.buffer,
-        0,
-        vertexBufferSize,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
-    );
-
-    vks::tools::insertBufferMemoryBarrier(
-        cmd,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_INDEX_READ_BIT,
-        indexBuffer.buffer,
-        0,
-        indexBufferSize,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
-    );
-
-    generationCalls++;
-
-    heightMapConfigChanged = false;
-    heightMapInitialized = true;
 }
 
 void Engine::createSkyboxResources(std::string hdrPath)
@@ -1416,126 +1145,4 @@ void Engine::cleanUpSkyboxResources()
         skyboxDescriptorSetLayout = VK_NULL_HANDLE;
     }
     for (auto& buffer : skyboxUBO) buffer.destroy();
-}
-
-
-void Engine::debugPrintIndexBuffer()
-{
-    // Make sure all GPU commands are finished before we try to copy the buffer
-    vkDeviceWaitIdle(device->logicalDevice);
-
-    // Assuming your VulkanBuffer struct/class stores its size.
-    // If not, calculate it manually:
-    const VkDeviceSize bufferSize = sizeof(uint32_t) * (heightMapSize - 1) * (heightMapSize - 1) * 6;
-
-    // 1. Create a staging buffer that is visible to the CPU (the host)
-    vks::Buffer stagingBuffer;
-    stagingBuffer.create(
-        device->logicalDevice,
-        device->physicalDevice,
-        bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT, // We're using it as a destination for a copy
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    const VkDeviceSize vertSize = sizeof(Vertex) * heightMapSize * heightMapSize;
-    vks::Buffer stagingBufferVert;
-    stagingBufferVert.create(
-        device->logicalDevice,
-        device->physicalDevice,
-        vertSize,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT, // We're using it as a destination for a copy
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    // 2. Use a command buffer to record the copy command
-    VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = device->graphicsCommandPool; // Using your existing graphics command pool
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer copyCmd;
-    vkAllocateCommandBuffers(device->logicalDevice, &allocInfo, &copyCmd);
-
-    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // We'll only use this command buffer once
-    vkBeginCommandBuffer(copyCmd, &beginInfo);
-
-    // Record the actual copy command
-    VkBufferCopy copyRegion{};
-    copyRegion.size = bufferSize;
-    vkCmdCopyBuffer(copyCmd, indexBuffer.buffer, stagingBuffer.buffer, 1, &copyRegion);
-
-    copyRegion.size = vertSize;
-    vkCmdCopyBuffer(copyCmd, vertexBuffer.buffer, stagingBufferVert.buffer, 1, &copyRegion);
-
-    vkEndCommandBuffer(copyCmd);
-
-    // 3. Submit the command to the queue and wait for it to finish
-    VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &copyCmd;
-
-    vkQueueSubmit(device->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(device->graphicsQueue); // The simplest way to wait for the copy to complete
-
-    vkFreeCommandBuffers(device->logicalDevice, device->graphicsCommandPool, 1, &copyCmd);
-
-
-    stagingBufferVert.map();
-    if (stagingBufferVert.mapped)
-    {
-        // Cast the raw data pointer to a Vertex pointer
-        Vertex* vertices = static_cast<Vertex*>(stagingBufferVert.mapped);
-        uint32_t vertexCount = vertSize / sizeof(Vertex);
-
-        std::cout << "\n--- Vertex Buffer Positions (" << vertexCount << " vertices) ---" << std::endl;
-        // Loop through all the vertices
-        for (uint32_t i = 0; i < vertexCount; ++i)
-        {
-            // Access the 'pos' member of the current vertex
-            glm::vec3 position = vertices[i].pos;
-            std::cout << "V" << i << ": ("
-                << position.x << ", "
-                << position.y << ", "
-                << position.z << ")" << std::endl;
-        }
-        std::cout << "\n--------------------------------------------------\n" << std::endl;
-
-        stagingBufferVert.unmap();
-    }
-    else
-    {
-        std::cerr << "Failed to map vertex staging buffer memory!" << std::endl;
-    }
-
-
-    // 4. Map the staging buffer's memory, read it, and print
-    stagingBuffer.map();
-    if (stagingBuffer.mapped)
-    {
-        uint32_t* indices = static_cast<uint32_t*>(stagingBuffer.mapped);
-        uint32_t indexCount = bufferSize / sizeof(uint32_t);
-
-        std::cout << "\n--- Index Buffer Contents (" << indexCount << " indices) ---" << std::endl;
-        for (uint32_t i = 0; i < indexCount; ++i)
-        {
-            std::cout << indices[i] << " ";
-            // Add a newline every 6 indices (for one quad) to make it readable
-            if ((i + 1) % 6 == 0)
-            {
-                std::cout << std::endl;
-            }
-        }
-        std::cout << "\n--------------------------------------------\n" << std::endl;
-
-        stagingBuffer.unmap();
-    }
-    else
-    {
-        std::cerr << "Failed to map staging buffer memory!" << std::endl;
-    }
-
-    // 5. Clean up the temporary staging buffer
-    stagingBuffer.destroy();
 }

@@ -149,6 +149,7 @@
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="PBRTexture.cpp" />
     <ClCompile Include="ProceduralEnvironments.cpp" />
+    <ClCompile Include="Terrain.cpp" />
     <ClCompile Include="UIOverlay.cpp" />
     <ClCompile Include="VulkanBuffer.cpp" />
     <ClCompile Include="VulkanComputePass.cpp" />
@@ -170,6 +171,7 @@
     <ClInclude Include="Camera.hpp" />
     <ClInclude Include="Engine.h" />
     <ClInclude Include="PBRTexture.h" />
+    <ClInclude Include="Terrain.h" />
     <ClInclude Include="UIOverlay.h" />
     <ClInclude Include="VulkanBuffer.h" />
     <ClInclude Include="VulkanComputePass.h" />

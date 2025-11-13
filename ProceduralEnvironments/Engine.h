@@ -19,6 +19,7 @@
 #include "Window.h"
 #include "Camera.hpp"
 #include "UIOverlay.h"
+#include "Terrain.h"
 
 //#include "GpuCrashTracker.h"
 
@@ -28,9 +29,6 @@ public:
 	void run();
 
 private:
-	// ---- debug helperts -----
-	uint32_t generationCalls = 0;
-	void debugPrintIndexBuffer();
 
 	struct {
 		uint32_t width = 1960;
@@ -75,7 +73,6 @@ private:
 	// ----- Descriptor Pool -----
 	void createDescriptorPools();
 	VkDescriptorPool descriptorPool;
-	//VkDescriptorPool computeDescriptorPool;
 
 	// ----- Graphics Pipeline -----
 	void createGraphicsResources();
@@ -92,33 +89,12 @@ private:
 	void createDepthResources();
 	vks::Image depthStencil;
 
-	// ----- Vertex / Index Buffers -----
-	void initializeVertexIndexBuffers();
-	vks::Buffer vertexBuffer;
-	vks::Buffer indexBuffer;
-
-	std::vector<Vertex> quadsVertices{};
-	std::vector<uint32_t> quadsIndices{};
-	void cleanUpVertexIndexBuffers();
-
-
-	// ----- Terrain Generation -----
-	void createHeightMapResources(int size, VkFormat format);
-	vks::Image heightMap;
-	int heightMapSize = 1024;
+	// ----- TERRAIN -----
+	std::unique_ptr<Terrain> terrain;
 	HeightMapParams heightMapConfig;
-	std::unique_ptr<VulkanComputePass> m_heightMapCompute;
-	void cleanUpHeightMapResources();
-
-	bool heightMapConfigChanged = true;
-	bool heightMapInitialized = false;
-
-	void createTerrainGenerationComputeResources();
 	TerrainParams terrainGenParams;
-	std::unique_ptr<VulkanComputePass> m_TerrainGenerationCompute;
-	void cleanUpTerrainGenerationComputeResources();
-	
-	void recordTerrainMeshGeneration(VkCommandBuffer cmd, HeightMapParams& heightMapParams, TerrainParams& terrainParams);
+	bool heightMapConfigChanged = true;
+
 
 
 	// ----- Skybox Resources-----

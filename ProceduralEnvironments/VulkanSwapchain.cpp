@@ -1,4 +1,5 @@
 #include "VulkanSwapchain.h"
+#include "Terrain.h"
 
 VulkanSwapchain::VulkanSwapchain(VkInstance instance, VkSurfaceKHR surface, VkDevice device, VkPhysicalDevice physicalDevice, GLFWwindow* window)
 {
